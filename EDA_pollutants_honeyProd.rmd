@@ -1,0 +1,82 @@
+---
+title: "honey production_Air pollutants"
+author: "Umair Rafique"
+date: "August 9, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+df_pollutants <- read.csv("epa_hap_daily_summary.csv")
+df_honeyProd <- read.csv("20465_26638_bundle_archive/honeyproduction.csv")
+library(tidyverse)
+library(lubridate)
+df_pollutants$date_local <- as.Date(as.character(df_pollutants$date_local), format = "%Y-%m-%d")
+```
+
+```{r}
+df_pollutants %>% 
+  filter(state_code == 42) %>%
+  ggplot(aes(y = arithmetic_mean, x = parameter_name)) + geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 90))
+
+df_pollutants %>% 
+  filter(state_code == 42) %>%
+  ggplot(aes(x = arithmetic_mean)) + geom_histogram(binwidth = 1) + facet_wrap(~ parameter_name)
+```
+Seems like we can use the values without standardization
+
+We will add a year column for grouping and remove the extra fields
+```{r}
+df_pollutants %>% 
+  select(date_local, state_name, parameter_code, parameter_name, pollutant_standard, units_of_measure,
+         arithmetic_mean) %>% 
+  mutate(year = year(date_local)) -> df_pollutants_trimmed
+```
+
+Adding state names to honey production since pollutants data only has state names that can be used to join
+```{r}
+
+library(USAboundaries)
+df_honeyProd$state <- as.character(df_honeyProd$state)
+df_honeyProd %>% 
+  left_join(select(state_codes, state_abbr, state_name), 
+            by = c("state" = "state_abbr")) -> df_honey_state
+```
+
+Joining the two datasets
+```{r}
+df_pollutants_trimmed %>% 
+  group_by(year, state_name) %>% 
+  summarise(pollutants_agg = sum(arithmetic_mean)) %>% 
+  left_join(df_honey_state, by = c("state_name", "year")) %>% 
+  drop_na() -> df_pollutants_honeyProd
+```
+
+```{r cache=TRUE}
+ggplot(df_pollutants_honeyProd, aes(x = pollutants_agg, y = totalprod)) +
+  geom_point() + facet_wrap(~ state_name)
+```
+
+The aggregated pollutants value does not seem to have much of a correlation with total production of honey in each state. Segrating by state gives us comparisons of the two variables over the years.
+
+We can now look for correlations in yield
+
+```{r cache=TRUE}
+ggplot(df_pollutants_honeyProd, aes(x = pollutants_agg, y = yieldpercol)) +
+  geom_point() + facet_wrap(~ state_name) + geom_smooth(method = "lm")
+```
+
+Even the yield does not exhibit any correlation at all.
+
+We can try exploring the trends of pollutants quantity in air and the trend of honey yield per colony over the years and see if we can find something
+
+```{r cache=TRUE}
+ggplot(df_pollutants_honeyProd, aes(x = year, y = yieldpercol)) +
+  geom_line() + facet_wrap(~ state_name)
+
+ggplot(df_pollutants_honeyProd, aes(x = year, y = pollutants_agg)) +
+  geom_line() + facet_wrap(~ state_name, scales = 'free')
+```
+
+The comparison of trend lines for each state don't give any hint of correlation. In some cases, states where the aggregated pollutants seem to have dropped drastically, the general trend for yield is slightly negative as well, like California. Overall, there isn't much correlation at all to be modelled.
